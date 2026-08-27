@@ -1,0 +1,17 @@
+# Already used by the core pipeline (no internet needed — these ship with
+# most Python environments / were pre-available in the build sandbox):
+opencv-contrib-python>=4.8
+numpy>=1.24
+
+# Needed only to run the REST/WebSocket API server (api/main.py):
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.0
+
+# --- Optional, for the "Path to Production" swap-ins described in README.md ---
+# easyocr                 # deep-learning ANPR OCR (escalation tier)
+# ultralytics             # YOLOv8-based plate/vehicle detection
+# insightface             # ArcFace embeddings for real face recognition
+# kafka-python            # replaces bus.py at statewide scale
+# psycopg2-binary         # PostgreSQL driver once you move off SQLite
+# geoalchemy2             # PostGIS ORM support

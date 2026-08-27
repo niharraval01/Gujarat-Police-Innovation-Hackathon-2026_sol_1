@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sentinel Mesh — Command Console</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0a0f1a; --panel:#101929; --panel-2:#0d1522; --line:#1d2b42;
+    --text:#e7ecf3; --muted:#7d8ba3; --teal:#2dd4bf; --amber:#f5a524; --red:#ef4444;
+    --mono: 'IBM Plex Mono', monospace; --sans: 'IBM Plex Sans', system-ui, sans-serif;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{background:var(--bg); color:var(--text); font-family:var(--sans); overflow:hidden; height:100vh;}
+  .app{display:flex; flex-direction:column; height:100vh;}
+
+  header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 22px; border-bottom:1px solid var(--line); background:var(--panel-2); z-index:10;
+  }
+  .brand{display:flex; align-items:center; gap:12px;}
+  .brand .dot{width:10px; height:10px; border-radius:50%; background:var(--teal); box-shadow:0 0 12px var(--teal); animation:pulse 2s infinite;}
+  .brand h1{font-size:16px; letter-spacing:2.5px; font-weight:700;}
+  .brand .sub{font-size:11px; color:var(--muted); letter-spacing:1px; margin-top:2px;}
+  .status{font-family:var(--mono); font-size:12px; color:var(--muted); display:flex; gap:22px; align-items:center;}
+  .status span b{color:var(--text); font-weight:600;}
+  #clock{color:var(--teal);}
+
+  @keyframes pulse{0%,100%{opacity:1;} 50%{opacity:.35;}}
+
+  .layout{flex:1; display:grid; grid-template-columns:280px 1fr 340px; overflow:hidden;}
+
+  aside{background:var(--panel); border-right:1px solid var(--line); overflow-y:auto; padding:16px;}
+  aside.right{border-right:none; border-left:1px solid var(--line);}
+
+  .section-label{font-size:11px; letter-spacing:1.5px; color:var(--muted); font-weight:600; margin:18px 0 10px; text-transform:uppercase;}
+  .section-label:first-child{margin-top:0;}
+
+  .stat-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  .stat-card{background:var(--panel-2); border:1px solid var(--line); border-radius:6px; padding:10px 12px;}
+  .stat-card .num{font-family:var(--mono); font-size:22px; font-weight:600;}
+  .stat-card .lbl{font-size:10px; color:var(--muted); letter-spacing:.5px; margin-top:2px;}
+  .stat-card.alertc .num{color:var(--red);}
+
+  .cam-row{display:flex; align-items:center; gap:9px; padding:7px 4px; font-size:12px; border-bottom:1px solid var(--line); cursor:pointer;}
+  .cam-row:hover{background:var(--panel-2);}
+  .cam-dot{width:7px; height:7px; border-radius:50%; flex-shrink:0;}
+  .cam-dot.online{background:var(--teal);}
+  .cam-dot.offline{background:var(--red);}
+  .cam-dot.degraded{background:var(--amber);}
+  .cam-meta{overflow:hidden;}
+  .cam-name{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:500;}
+  .cam-dist{color:var(--muted); font-size:10.5px; font-family:var(--mono);}
+
+  .map-wrap{position:relative;}
+  #map{width:100%; height:100%; background:#0a0f1a;}
+  .leaflet-popup-content-wrapper{background:var(--panel); color:var(--text); font-family:var(--mono); font-size:12px; border:1px solid var(--line);}
+  .leaflet-popup-tip{background:var(--panel);}
+
+  .search-overlay{
+    position:absolute; top:16px; left:16px; z-index:5; background:var(--panel);
+    border:1px solid var(--line); border-radius:8px; padding:10px 12px; width:300px;
+    box-shadow:0 8px 24px rgba(0,0,0,.4);
+  }
+  .search-overlay label{font-size:10px; letter-spacing:1px; color:var(--muted); text-transform:uppercase;}
+  .search-row{display:flex; gap:6px; margin-top:6px;}
+  .search-row input{
+    flex:1; background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    font-family:var(--mono); padding:7px 9px; border-radius:5px; font-size:13px; text-transform:uppercase;
+  }
+  .search-row input:focus{outline:1px solid var(--teal);}
+  .search-row button{
+    background:var(--teal); color:#04201c; border:none; padding:7px 12px; border-radius:5px;
+    font-weight:600; font-size:12px; cursor:pointer;
+  }
+  .search-row button:hover{filter:brightness(1.1);}
+  #routeResult{margin-top:10px; font-size:11.5px; font-family:var(--mono); color:var(--muted); max-height:220px; overflow-y:auto;}
+  #routeResult .hop{padding:6px 0; border-top:1px solid var(--line);}
+  #routeResult .hop b{color:var(--text);}
+  #routeResult .empty{color:var(--muted); font-style:italic;}
+
+  .legend{
+    position:absolute; bottom:16px; left:16px; z-index:5; background:var(--panel);
+    border:1px solid var(--line); border-radius:8px; padding:10px 14px; font-size:11px;
+    display:flex; gap:14px; color:var(--muted);
+  }
+  .legend span{display:flex; align-items:center; gap:6px;}
+  .legend i{width:8px; height:8px; border-radius:50%; display:inline-block;}
+
+  /* On-demand live view (WebRTC/WHEP) — this is Sentinel Mesh's central
+     promise made concrete: pull video only when an operator asks for it. */
+  .live-view-btn{
+    background:var(--panel-2); border:1px solid var(--teal); color:var(--teal);
+    font-family:var(--mono); font-size:10.5px; padding:4px 9px; border-radius:5px;
+    cursor:pointer; margin-top:6px; letter-spacing:.5px;
+  }
+  .live-view-btn:hover{background:var(--teal); color:#04201c;}
+  .live-view-btn:disabled{opacity:.35; cursor:not-allowed; border-color:var(--muted); color:var(--muted);}
+
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(5,8,14,.82); z-index:1000;
+    display:none; align-items:center; justify-content:center;
+  }
+  .modal-overlay.open{display:flex;}
+  .modal-box{
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    width:min(760px, 90vw); box-shadow:0 20px 60px rgba(0,0,0,.5);
+  }
+  .modal-head{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:12px 16px; border-bottom:1px solid var(--line);
+  }
+  .modal-head b{font-family:var(--mono); font-size:13px; letter-spacing:.5px;}
+  .modal-close{background:none; border:none; color:var(--muted); font-size:18px; cursor:pointer; line-height:1;}
+  .modal-close:hover{color:var(--text);}
+  .modal-body{padding:14px 16px;}
+  .live-video-wrap{
+    width:100%; aspect-ratio:16/9; background:#000; border-radius:6px;
+    display:flex; align-items:center; justify-content:center; overflow:hidden;
+  }
+  .live-video-wrap video{width:100%; height:100%; object-fit:contain;}
+  .live-status{font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:8px;}
+  .live-status.err{color:var(--red);}
+
+  .alert-feed{display:flex; flex-direction:column; gap:8px;}
+  .alert-card{
+    background:var(--panel-2); border-left:3px solid var(--red); border-radius:4px;
+    padding:9px 11px; animation:slidein .35s ease;
+  }
+  .alert-card.person{border-left-color:var(--amber);}
+  @keyframes slidein{from{opacity:0; transform:translateX(12px);} to{opacity:1; transform:translateX(0);}}
+  .alert-top{display:flex; justify-content:space-between; align-items:baseline;}
+  .alert-reason{font-size:10px; letter-spacing:1px; text-transform:uppercase; font-weight:700; color:var(--red);}
+  .alert-card.person .alert-reason{color:var(--amber);}
+  .alert-time{font-family:var(--mono); font-size:10.5px; color:var(--muted);}
+  .alert-key{font-family:var(--mono); font-size:15px; font-weight:600; margin-top:3px;}
+  .alert-loc{font-size:11px; color:var(--muted); margin-top:2px;}
+  .no-alerts{color:var(--muted); font-size:12px; font-style:italic; padding:8px 2px;}
+
+  ::-webkit-scrollbar{width:6px;}
+  ::-webkit-scrollbar-thumb{background:var(--line); border-radius:3px;}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <div class="brand">
+      <div class="dot"></div>
+      <div>
+        <h1>SENTINEL MESH</h1>
+        <div class="sub">Gujarat CCTV Integration &amp; Analytics Console</div>
+      </div>
+    </div>
+    <div class="status">
+      <span>API: <b id="apiState">connecting…</b></span>
+      <span>LIVE FEED: <b id="wsState">connecting…</b></span>
+      <span id="clock">--:--:--</span>
+    </div>
+  </header>
+
+  <div class="layout">
+
+    <aside class="left">
+      <div class="section-label">Network Status</div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="num" id="statTotal">–</div><div class="lbl">Cameras Onboarded</div></div>
+        <div class="stat-card"><div class="num" id="statOnline">–</div><div class="lbl">Online</div></div>
+        <div class="stat-card alertc"><div class="num" id="statAlerts">–</div><div class="lbl">Alerts (session)</div></div>
+        <div class="stat-card"><div class="num" id="statDistricts">–</div><div class="lbl">Districts Covered</div></div>
+      </div>
+
+      <div class="section-label">Camera Registry</div>
+      <div id="camList"></div>
+    </aside>
+
+    <main class="map-wrap">
+      <div id="map"></div>
+
+      <div class="search-overlay">
+        <label>Vehicle Movement Reconstruction</label>
+        <div class="search-row">
+          <input id="plateInput" placeholder="e.g. GJ06AB1234" />
+          <button onclick="searchRoute()">Trace</button>
+        </div>
+        <div id="routeResult"><div class="empty">Enter a plate number to reconstruct its route across the camera network.</div></div>
+      </div>
+
+      <div class="legend">
+        <span><i style="background:#2dd4bf"></i> Camera online</span>
+        <span><i style="background:#ef4444"></i> Camera offline</span>
+        <span><i style="background:#f5a524"></i> Degraded</span>
+        <span><i style="background:#ef4444; box-shadow:0 0 6px #ef4444"></i> Active alert</span>
+      </div>
+    </main>
+
+    <aside class="right">
+      <div class="section-label">Live Alert Log</div>
+      <div class="alert-feed" id="alertFeed">
+        <div class="no-alerts">No alerts yet this session.</div>
+      </div>
+    </aside>
+
+  </div>
+</div>
+
+<div class="modal-overlay" id="liveViewModal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <b id="liveViewTitle">LIVE VIEW</b>
+      <button class="modal-close" onclick="closeLiveView()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="live-video-wrap"><video id="liveViewVideo" autoplay playsinline muted></video></div>
+      <div class="live-status" id="liveViewStatus">Connecting…</div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  // Backend is served from the same origin by FastAPI's StaticFiles mount.
+  // If you're opening this file directly instead of via the API server,
+  // point this at wherever `uvicorn api.main:app` is running.
+  const API_BASE = window.location.origin.startsWith("file") ? "http://localhost:8000" : window.location.origin;
+  const WS_BASE = API_BASE.replace("http", "ws");
+
+  const map = L.map('map', { zoomControl: true }).setView([22.3, 71.8], 7);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 18, subdomains: 'abcd'
+  }).addTo(map);
+
+  const camMarkers = {};
+  const camerasById = {};
+  let sessionAlertCount = 0;
+  let routeLayer = null;
+
+  function statusColor(s){ return s === 'online' ? '#2dd4bf' : (s === 'degraded' ? '#f5a524' : '#ef4444'); }
+
+  async function loadCameras(){
+    try{
+      const res = await fetch(API_BASE + '/cameras');
+      const cams = await res.json();
+      document.getElementById('apiState').textContent = 'connected';
+      document.getElementById('apiState').style.color = '#2dd4bf';
+
+      // Cameras onboarded without real GPS yet (e.g. a catalogue that
+      // hasn't been geo-tagged) report (0,0) — plotting that literally
+      // puts a pin in the Gulf of Guinea. Keep them in the list, keep
+      // them out of the map, and say so plainly instead of guessing.
+      const hasCoords = (c) => c.lat != null && c.lon != null && !(c.lat === 0 && c.lon === 0);
+      const placed = cams.filter(hasCoords);
+      const unplaced = cams.filter(c => !hasCoords(c));
+
+      document.getElementById('statTotal').textContent = cams.length;
+      document.getElementById('statOnline').textContent = cams.filter(c => c.status === 'online').length;
+      document.getElementById('statDistricts').textContent = new Set(cams.map(c => c.district)).size;
+
+      const listEl = document.getElementById('camList');
+      listEl.innerHTML = '';
+      placed.forEach(cam => {
+        camerasById[cam.camera_id] = cam;
+        const marker = L.circleMarker([cam.lat, cam.lon], {
+          radius: 5, color: statusColor(cam.status), fillColor: statusColor(cam.status),
+          fillOpacity: 0.9, weight: 1.5
+        }).addTo(map);
+        const liveBtn = cam.whep_url
+          ? `<br><button class="live-view-btn" onclick="openLiveViewByCameraId('${cam.camera_id}')">▶ Live View</button>`
+          : `<br><button class="live-view-btn" disabled title="No live preview URL onboarded for this camera">▶ Live View</button>`;
+        marker.bindPopup(
+          `<b>${cam.name}</b><br>${cam.camera_id}<br>${cam.department} · ${cam.vendor}<br>${cam.district}, status: ${cam.status}${liveBtn}`
+        );
+        camMarkers[cam.camera_id] = marker;
+
+        const row = document.createElement('div');
+        row.className = 'cam-row';
+        row.innerHTML = `<span class="cam-dot ${cam.status}"></span>
+          <div class="cam-meta"><div class="cam-name">${cam.name}</div><div class="cam-dist">${cam.camera_id} · ${cam.district}</div></div>`;
+        row.onclick = () => { map.setView([cam.lat, cam.lon], 12); marker.openPopup(); };
+        listEl.appendChild(row);
+      });
+
+      if (unplaced.length){
+        const note = document.createElement('div');
+        note.style.cssText = 'font-size:10.5px; color:var(--muted); padding:8px 4px; font-style:italic;';
+        note.textContent = `${unplaced.length} camera(s) onboarded without GPS yet — not shown on map`;
+        listEl.appendChild(note);
+        unplaced.forEach(cam => {
+          const row = document.createElement('div');
+          row.className = 'cam-row';
+          row.innerHTML = `<span class="cam-dot degraded"></span>
+            <div class="cam-meta"><div class="cam-name">${cam.name}</div><div class="cam-dist">${cam.camera_id} · no GPS</div></div>`;
+          listEl.appendChild(row);
+        });
+      }
+    }catch(e){
+      document.getElementById('apiState').textContent = 'offline';
+      document.getElementById('apiState').style.color = '#ef4444';
+    }
+  }
+
+  function renderAlert(alert, isFace){
+    sessionAlertCount++;
+    document.getElementById('statAlerts').textContent = sessionAlertCount;
+
+    const feed = document.getElementById('alertFeed');
+    const empty = feed.querySelector('.no-alerts');
+    if (empty) empty.remove();
+
+    const card = document.createElement('div');
+    card.className = 'alert-card' + (alert.match_type === 'person' ? ' person' : '');
+    const time = new Date().toLocaleTimeString();
+    card.innerHTML = `
+      <div class="alert-top"><span class="alert-reason">${alert.reason}</span><span class="alert-time">${time}</span></div>
+      <div class="alert-key">${alert.match_key}${alert.name ? ' · ' + alert.name : ''}</div>
+      <div class="alert-loc">${alert.camera_id} · conf ${(alert.confidence*100).toFixed(0)}%</div>
+    `;
+    feed.prepend(card);
+
+    if (alert.lat && alert.lon){
+      const pulse = L.circleMarker([alert.lat, alert.lon], {
+        radius: 10, color: '#ef4444', fillColor: '#ef4444', fillOpacity: 0.25, weight: 2
+      }).addTo(map);
+      setTimeout(() => map.removeLayer(pulse), 6000);
+    }
+  }
+
+  async function loadRecentAlerts(){
+    try{
+      const res = await fetch(API_BASE + '/alerts?limit=20');
+      const alerts = await res.json();
+      alerts.reverse().forEach(a => renderAlert(a));
+    }catch(e){ /* backend not up yet */ }
+  }
+
+  function connectWS(){
+    try{
+      const ws = new WebSocket(WS_BASE + '/ws/alerts');
+      ws.onopen = () => { document.getElementById('wsState').textContent = 'live'; document.getElementById('wsState').style.color = '#2dd4bf'; };
+      ws.onmessage = (ev) => renderAlert(JSON.parse(ev.data));
+      ws.onclose = () => {
+        document.getElementById('wsState').textContent = 'reconnecting…';
+        document.getElementById('wsState').style.color = '#f5a524';
+        setTimeout(connectWS, 3000);
+      };
+      ws.onerror = () => ws.close();
+    }catch(e){ setTimeout(connectWS, 3000); }
+  }
+
+  async function searchRoute(){
+    const plate = document.getElementById('plateInput').value.trim().toUpperCase().replace(/\s+/g, '');
+    const resultEl = document.getElementById('routeResult');
+    if (!plate){ return; }
+    resultEl.innerHTML = '<div class="empty">Searching…</div>';
+    try{
+      const res = await fetch(API_BASE + '/vehicles/' + plate + '/route');
+      const hops = await res.json();
+      if (routeLayer) map.removeLayer(routeLayer);
+      if (!hops.length){
+        resultEl.innerHTML = '<div class="empty">No detections found for this plate yet.</div>';
+        return;
+      }
+      const latlngs = hops.map(h => [h.lat, h.lon]);
+      routeLayer = L.layerGroup();
+      L.polyline(latlngs, { color: '#f5a524', weight: 3, dashArray: '6,6' }).addTo(routeLayer);
+      hops.forEach((h, i) => {
+        L.marker([h.lat, h.lon]).addTo(routeLayer)
+          .bindPopup(`<b>Hop ${i+1}: ${h.camera_name}</b><br>${h.district}<br>${new Date(h.ts*1000).toLocaleString()}`);
+      });
+      routeLayer.addTo(map);
+      map.fitBounds(latlngs, { padding: [40, 40] });
+
+      resultEl.innerHTML = hops.map((h, i) => `
+        <div class="hop"><b>Hop ${i+1}</b> — ${h.camera_name}<br>${h.district} · ${new Date(h.ts*1000).toLocaleTimeString()} · conf ${(h.confidence*100).toFixed(0)}%</div>
+      `).join('');
+    }catch(e){
+      resultEl.innerHTML = '<div class="empty">Could not reach the API.</div>';
+    }
+  }
+  document.getElementById('plateInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') searchRoute(); });
+
+  // ---------- On-demand live view via WHEP (WebRTC-HTTP Egress Protocol) ----------
+  // This is Sentinel Mesh's central architectural claim made concrete: video
+  // is pulled only when an operator explicitly asks to see a specific
+  // camera — never streamed centrally by default. See ARCHITECTURE.md §1.
+  let livePC = null;       // current RTCPeerConnection, so we can close it cleanly
+  let liveResourceUrl = null;  // WHEP session resource URL returned via the Location header
+
+  function openLiveViewByCameraId(cameraId){
+    const cam = camerasById[cameraId];
+    if (!cam || !cam.whep_url) return;
+    openLiveView(cam.whep_url, `${cam.name} (${cam.camera_id})`);
+  }
+
+  async function openLiveView(whepUrl, label){
+    document.getElementById('liveViewTitle').textContent = label;
+    document.getElementById('liveViewModal').classList.add('open');
+    const statusEl = document.getElementById('liveViewStatus');
+    statusEl.className = 'live-status';
+    statusEl.textContent = 'Connecting (WebRTC/WHEP)…';
+
+    await closeLivePeerConnection();  // in case a previous session is still open
+
+    try{
+      const pc = new RTCPeerConnection();
+      livePC = pc;
+      pc.addTransceiver('video', { direction: 'recvonly' });
+      pc.addTransceiver('audio', { direction: 'recvonly' });
+
+      const videoEl = document.getElementById('liveViewVideo');
+      pc.ontrack = (ev) => { videoEl.srcObject = ev.streams[0]; };
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'connected') statusEl.textContent = 'Live';
+        else if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) {
+          statusEl.className = 'live-status err';
+          statusEl.textContent = `Connection ${pc.connectionState}`;
+        }
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      // WHEP: POST the SDP offer, get an SDP answer back. A compliant
+      // server also returns a Location header — the session's own
+      // resource URL — which we DELETE on close so the server can free
+      // it (the same "don't leave connections open" pacing principle
+      // that applies to the RTSP ingestion side).
+      const res = await fetch(whepUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/sdp' },
+        body: offer.sdp,
+      });
+      if (!res.ok) throw new Error(`WHEP endpoint returned HTTP ${res.status}`);
+      liveResourceUrl = res.headers.get('Location') || null;
+      const answerSdp = await res.text();
+      await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+    }catch(err){
+      statusEl.className = 'live-status err';
+      statusEl.textContent = `Live preview failed: ${err.message}`;
+    }
+  }
+
+  async function closeLivePeerConnection(){
+    if (liveResourceUrl){
+      try{ await fetch(liveResourceUrl, { method: 'DELETE' }); }catch(e){ /* best-effort session teardown */ }
+      liveResourceUrl = null;
+    }
+    if (livePC){
+      livePC.close();
+      livePC = null;
+    }
+  }
+
+  function closeLiveView(){
+    document.getElementById('liveViewModal').classList.remove('open');
+    const videoEl = document.getElementById('liveViewVideo');
+    videoEl.srcObject = null;
+    closeLivePeerConnection();
+  }
+
+  function tickClock(){
+    document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-IN', { hour12: false });
+  }
+  setInterval(tickClock, 1000); tickClock();
+
+  loadCameras();
+  loadRecentAlerts();
+  connectWS();
+  setInterval(loadCameras, 20000);
+</script>
+</body>
+</html>
