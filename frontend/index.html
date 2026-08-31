@@ -221,6 +221,10 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- hls.js: lightweight HLS player for Chrome/Firefox. Safari plays HLS natively.
+     Used for the on-demand live preview fallback when a WHEP endpoint is not
+     available — same on-demand pull model, different transport. -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
 <script>
   // Backend is served from the same origin by FastAPI's StaticFiles mount.
   // If you're opening this file directly instead of via the API server,
@@ -267,8 +271,13 @@
           radius: 5, color: statusColor(cam.status), fillColor: statusColor(cam.status),
           fillOpacity: 0.9, weight: 1.5
         }).addTo(map);
-        const liveBtn = cam.whep_url
-          ? `<br><button class="live-view-btn" onclick="openLiveViewByCameraId('${cam.camera_id}')">▶ Live View</button>`
+        // Enable Live View if we have WHEP (WebRTC, preferred) OR HLS (fallback).
+        // Both follow the same on-demand pull principle: video is pulled only when
+        // an operator explicitly asks — never streamed centrally by default.
+        const hasLivePreview = cam.whep_url || cam.hls_url;
+        const liveBtnProtocol = cam.whep_url ? 'WHEP' : 'HLS';
+        const liveBtn = hasLivePreview
+          ? `<br><button class="live-view-btn" onclick="openLiveViewByCameraId('${cam.camera_id}')" title="Live preview via ${liveBtnProtocol}">▶ Live View (${liveBtnProtocol})</button>`
           : `<br><button class="live-view-btn" disabled title="No live preview URL onboarded for this camera">▶ Live View</button>`;
         marker.bindPopup(
           `<b>${cam.name}</b><br>${cam.camera_id}<br>${cam.department} · ${cam.vendor}<br>${cam.district}, status: ${cam.status}${liveBtn}`
@@ -382,68 +391,140 @@
   }
   document.getElementById('plateInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') searchRoute(); });
 
-  // ---------- On-demand live view via WHEP (WebRTC-HTTP Egress Protocol) ----------
-  // This is Sentinel Mesh's central architectural claim made concrete: video
-  // is pulled only when an operator explicitly asks to see a specific
-  // camera — never streamed centrally by default. See ARCHITECTURE.md §1.
-  let livePC = null;       // current RTCPeerConnection, so we can close it cleanly
-  let liveResourceUrl = null;  // WHEP session resource URL returned via the Location header
+  // ---------- On-demand live view — WHEP (WebRTC) with HLS fallback ----------
+  // Sentinel Mesh's central architectural claim made concrete: video is pulled
+  // only when an operator explicitly asks for a specific camera — never streamed
+  // centrally by default. See ARCHITECTURE.md §1.
+  //
+  // Protocol selection (evaluated per camera):
+  //   1. whep_url present → WHEP (WebRTC, sub-second latency, preferred)
+  //   2. hls_url present  → HLS via hls.js (3-10s latency, CDN-friendly fallback)
+  //   3. neither          → button stays disabled
+  let livePC = null;       // current RTCPeerConnection, closed on modal close
+  let liveResourceUrl = null;  // WHEP session resource URL (Location header) for DELETE on close
+  let liveHls = null;      // hls.js Hls instance, destroyed on modal close
 
   function openLiveViewByCameraId(cameraId){
     const cam = camerasById[cameraId];
-    if (!cam || !cam.whep_url) return;
-    openLiveView(cam.whep_url, `${cam.name} (${cam.camera_id})`);
+    if (!cam) return;
+    if (cam.whep_url){
+      openLiveView(cam.whep_url, null, `${cam.name} (${cam.camera_id})`);
+    } else if (cam.hls_url){
+      openLiveView(null, cam.hls_url, `${cam.name} (${cam.camera_id})`);
+    }
   }
 
-  async function openLiveView(whepUrl, label){
+  async function openLiveView(whepUrl, hlsUrl, label){
     document.getElementById('liveViewTitle').textContent = label;
     document.getElementById('liveViewModal').classList.add('open');
     const statusEl = document.getElementById('liveViewStatus');
     statusEl.className = 'live-status';
-    statusEl.textContent = 'Connecting (WebRTC/WHEP)…';
+    const videoEl = document.getElementById('liveViewVideo');
 
-    await closeLivePeerConnection();  // in case a previous session is still open
+    // Tear down any previously open session cleanly before starting a new one.
+    await closeLivePeerConnection();
+    destroyHlsInstance();
+    videoEl.srcObject = null;
+    videoEl.src = '';
 
-    try{
-      const pc = new RTCPeerConnection();
-      livePC = pc;
-      pc.addTransceiver('video', { direction: 'recvonly' });
-      pc.addTransceiver('audio', { direction: 'recvonly' });
+    if (whepUrl){
+      // ── Path 1: WHEP (WebRTC-HTTP Egress Protocol) — preferred, sub-second latency ──
+      statusEl.textContent = 'Connecting (WebRTC/WHEP)…';
+      try{
+        const pc = new RTCPeerConnection();
+        livePC = pc;
+        pc.addTransceiver('video', { direction: 'recvonly' });
+        pc.addTransceiver('audio', { direction: 'recvonly' });
 
-      const videoEl = document.getElementById('liveViewVideo');
-      pc.ontrack = (ev) => { videoEl.srcObject = ev.streams[0]; };
-      pc.onconnectionstatechange = () => {
-        if (pc.connectionState === 'connected') statusEl.textContent = 'Live';
-        else if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) {
-          statusEl.className = 'live-status err';
-          statusEl.textContent = `Connection ${pc.connectionState}`;
-        }
-      };
+        pc.ontrack = (ev) => { videoEl.srcObject = ev.streams[0]; };
+        pc.onconnectionstatechange = () => {
+          if (pc.connectionState === 'connected'){
+            statusEl.textContent = 'Live  ·  WebRTC/WHEP';
+          } else if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)){
+            statusEl.className = 'live-status err';
+            statusEl.textContent = `WebRTC connection ${pc.connectionState}`;
+          }
+        };
 
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
 
-      // WHEP: POST the SDP offer, get an SDP answer back. A compliant
-      // server also returns a Location header — the session's own
-      // resource URL — which we DELETE on close so the server can free
-      // it (the same "don't leave connections open" pacing principle
-      // that applies to the RTSP ingestion side).
-      const res = await fetch(whepUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/sdp' },
-        body: offer.sdp,
-      });
-      if (!res.ok) throw new Error(`WHEP endpoint returned HTTP ${res.status}`);
-      liveResourceUrl = res.headers.get('Location') || null;
-      const answerSdp = await res.text();
-      await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
-    }catch(err){
+        // WHEP: POST the SDP offer, receive an SDP answer. A compliant server
+        // also returns a Location header — the session's resource URL — which
+        // we DELETE on close so the server can free it (same "don't leave
+        // connections open" pacing principle as the RTSP ingestion side).
+        const res = await fetch(whepUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/sdp' },
+          body: offer.sdp,
+        });
+        if (!res.ok) throw new Error(`WHEP endpoint returned HTTP ${res.status}`);
+        liveResourceUrl = res.headers.get('Location') || null;
+        const answerSdp = await res.text();
+        await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+      }catch(err){
+        statusEl.className = 'live-status err';
+        statusEl.textContent = `WHEP failed: ${err.message}`;
+      }
+
+    } else if (hlsUrl){
+      // ── Path 2: HLS fallback — ~3-10s latency, works everywhere, no WebRTC needed ──
+      _connectHls(hlsUrl, videoEl, statusEl);
+    } else {
       statusEl.className = 'live-status err';
-      statusEl.textContent = `Live preview failed: ${err.message}`;
+      statusEl.textContent = 'No live preview URL available for this camera.';
+    }
+  }
+
+  function _connectHls(hlsUrl, videoEl, statusEl){
+    statusEl.textContent = 'Connecting (HLS)…';
+    if (Hls.isSupported()){
+      // Chrome, Firefox, Edge — use hls.js
+      const hls = new Hls({
+        // Low-latency tuning: keep the live edge as tight as possible.
+        // These are conservative values that work across codec speeds.
+        maxBufferLength: 10,
+        maxMaxBufferLength: 20,
+        liveSyncDurationCount: 2,
+      });
+      liveHls = hls;
+      hls.loadSource(hlsUrl);
+      hls.attachMedia(videoEl);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        videoEl.play().catch(() => {});
+        statusEl.textContent = 'Live  ·  HLS';
+      });
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        if (data.fatal){
+          statusEl.className = 'live-status err';
+          statusEl.textContent = `HLS error (${data.type}): ${data.details}`;
+          hls.destroy();
+          liveHls = null;
+        }
+      });
+    } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')){
+      // Safari — HLS is supported natively, no hls.js needed.
+      videoEl.src = hlsUrl;
+      videoEl.addEventListener('loadedmetadata', () => {
+        videoEl.play().catch(() => {});
+        statusEl.textContent = 'Live  ·  HLS (native)';
+      }, { once: true });
+    } else {
+      statusEl.className = 'live-status err';
+      statusEl.textContent = 'HLS playback not supported in this browser.';
+    }
+  }
+
+  function destroyHlsInstance(){
+    if (liveHls){
+      liveHls.destroy();
+      liveHls = null;
     }
   }
 
   async function closeLivePeerConnection(){
+    // DELETE the WHEP session resource so the server can free it — this is the
+    // same "don't leave connections open" principle as the RTSP pacing rule.
     if (liveResourceUrl){
       try{ await fetch(liveResourceUrl, { method: 'DELETE' }); }catch(e){ /* best-effort session teardown */ }
       liveResourceUrl = null;
@@ -458,7 +539,10 @@
     document.getElementById('liveViewModal').classList.remove('open');
     const videoEl = document.getElementById('liveViewVideo');
     videoEl.srcObject = null;
+    videoEl.src = '';
+    // Destroy both possible stream handles — only one will be set at any time.
     closeLivePeerConnection();
+    destroyHlsInstance();
   }
 
   function tickClock(){

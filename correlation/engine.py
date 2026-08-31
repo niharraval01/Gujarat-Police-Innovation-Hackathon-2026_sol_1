@@ -72,7 +72,28 @@ def _best_fuzzy_match(plate_text, watchlist_plates):
 
 class CorrelationEngine:
     def __init__(self, event_bus=None, clock=time.time):
-        self.bus = event_bus  # optional pub/sub for live push to the dashboard
+        """
+        Args:
+            event_bus: optional pub/sub for live push to the dashboard WebSocket.
+            clock: callable returning current time as a float (seconds). Defaults
+                   to ``time.time`` (wall-clock).
+
+        NOTE — deliberate design choice: the dedup and cooldown windows
+        (MIN_DETECTION_INTERVAL_SECONDS, ALERT_COOLDOWN_SECONDS) use
+        wall-clock time, not the PTS from the video frame. This is intentional:
+          * PTS is the right source of truth for frame-ordering and timing
+            inside the ingestion pipeline (see edge/live_ingest.py), where we
+            want to correctly detect scene discontinuities and avoid frame-rate
+            assumptions.
+          * The dedup/cooldown windows are operator-facing: "don't raise a
+            second alert for the same plate within 45 real seconds" is a
+            meaningful statement about calendar time for a human dispatcher,
+            not about video PTS. Using PTS here would make the window
+            video-speed-dependent and break for looped or accelerated feeds.
+          * ``clock`` is injectable so unit tests can control time without
+            touching real system time. See correlation/test_engine.py.
+        """
+        self.bus = event_bus
         self._clock = clock
         self._last_detection = {}   # (camera_id, dtype, value) -> {"id": detection_id, "ts": float}
         self._last_alert = {}       # (camera_id, match_type, match_key) -> {"alert_id": ..., "ts": float}

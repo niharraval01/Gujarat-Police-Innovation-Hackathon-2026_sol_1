@@ -134,6 +134,13 @@ def main():
             continue
         camera_id = f"SANDBOX-{entry['camera_id']}"
         lat, lon = entry["lat"] or 0.0, entry["lon"] or 0.0
+        # Gap 3 fix: log the codec field so mixed H.264/H.265 grids are visible
+        # in the operator console. OpenCV+FFmpeg handles both transparently, but
+        # logging makes silent codec-mismatch failures easier to diagnose.
+        codec = entry.get("codec") or "unknown"
+        print(f"[{camera_id}] codec={codec}  rtsp={entry['rtsp_url']}"
+              + (f"  whep={entry['whep_url']}" if entry.get("whep_url") else "")
+              + (f"  hls={entry['hls_url']}" if entry.get("hls_url") else ""))
         src = LiveRTSPSource(camera_id, entry["rtsp_url"])
         on_frame = make_on_frame(engine, plate_detector, plate_reader, face_detector, face_recognizer,
                                   camera_id, lat, lon)

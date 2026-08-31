@@ -111,6 +111,77 @@ def get_vehicle_route(plate_number: str):
     return db.vehicle_route(plate_number)
 
 
+# ---------- Camera detail ----------
+
+@app.get("/cameras/{camera_id}")
+def get_camera(camera_id: str):
+    cams = db.list_cameras()
+    cam = next((c for c in cams if c["camera_id"] == camera_id), None)
+    if cam is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Camera not found")
+    return cam
+
+
+# ---------- Catalogue debug (operator tool) ----------
+
+@app.get("/api/ingest/debug")
+def debug_ingest_catalogue(host: str, scheme: str = "http"):
+    """Operator debug tool: fetch and compare the raw vs. normalised /api/ingest
+    catalogue from the given sandbox host.
+
+    Use this on evaluation day to verify that edge/live_ingest.py's
+    _normalize_entry() maps the actual JSON keys correctly before starting
+    the live pipeline. If the normalized fields show None where you expect
+    a URL, look at the 'raw' field and fix _normalize_entry().
+
+    Example:
+        GET /api/ingest/debug?host=sandbox.example.org
+        GET /api/ingest/debug?host=sandbox.example.org&scheme=https
+    """
+    from fastapi import HTTPException
+    from edge.live_ingest import fetch_catalogue
+    base_url = f"{scheme}://{host}"
+    try:
+        catalogue = fetch_catalogue(base_url, timeout=10)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not reach {base_url}/api/ingest: {exc}"
+        )
+    return {
+        "source": f"{base_url}/api/ingest",
+        "count": len(catalogue),
+        "cameras": [
+            {
+                "normalized": {
+                    k: v for k, v in entry.items() if k != "raw"
+                },
+                "raw": entry["raw"],
+            }
+            for entry in catalogue
+        ],
+    }
+
+
+# ---------- Dashboard stats ----------
+
+@app.get("/stats")
+def get_stats():
+    cams = db.list_cameras()
+    alerts = db.list_alerts(limit=9999)
+    return {
+        "total_cameras": len(cams),
+        "online": sum(1 for c in cams if c.get("status") == "online"),
+        "offline": sum(1 for c in cams if c.get("status") == "offline"),
+        "degraded": sum(1 for c in cams if c.get("status") == "degraded"),
+        "districts": len(set(c.get("district", "") for c in cams)),
+        "total_alerts": len(alerts),
+        "watchlist_vehicles": len(db.list_watchlist_vehicles()),
+        "watchlist_persons": len(db.list_watchlist_persons()),
+    }
+
+
 # ---------- Live alert feed over WebSocket ----------
 
 @app.websocket("/ws/alerts")
