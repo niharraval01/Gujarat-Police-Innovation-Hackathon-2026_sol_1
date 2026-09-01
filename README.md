@@ -44,7 +44,8 @@ exactly the low-connectivity conditions it's designed for:
 | Registry + GIS data model | SQLite (Postgres/PostGIS-ready schema) | ✅ real, tested — 50 cameras / 25 districts seeded, plus catalogue-sync path for the sandbox grid |
 | Route reconstruction | Multi-camera timestamp stitching | ✅ real, tested |
 | REST + WebSocket API | FastAPI | ✅ written, syntax-verified (needs `pip install` — see below) |
-| Dashboard | Vanilla HTML/JS + Leaflet, dark command-console UI | ✅ written, handles cameras with no GPS gracefully |
+| Dashboard | React + Leaflet + OpenStreetMap, responsive AI command centre | ✅ production build, no map API key |
+| Explainable intelligence | Local threat scoring, hotspot/anomaly analysis, operations copilot | ✅ on-premise, evidence-backed, no cloud AI key |
 
 ## Quick start
 
@@ -56,11 +57,49 @@ cd sentinel-mesh
 #    commonly already present):
 python3 demo/run_pipeline.py
 
-# 2. To see the live dashboard, you'll need internet once, to pip install
-#    the API server and let the browser fetch the Leaflet/font CDN assets:
-pip install fastapi "uvicorn[standard]" --break-system-packages
+# 2. Install the API server dependencies and start the built React dashboard:
+pip install -r requirements.txt
 python3 -m uvicorn api.main:app --reload --port 8000
 # then open http://localhost:8000 in a browser
+```
+
+### React command centre
+
+The dashboard is now a production-built React application with a free
+OpenStreetMap base layer (no CARTO account or map API key). To rebuild it
+after changing `frontend/src`:
+
+```bash
+cd frontend
+npm install
+npm run build
+cd ..
+python -m uvicorn api.main:app --port 8000
+```
+
+FastAPI serves `frontend/dist` automatically when the build exists. During UI
+development, run `npm run dev`; Vite proxies the API and WebSocket routes to
+port 8000.
+
+### Local AI capabilities
+
+`intelligence/service.py` provides three explainable, on-premise features
+without any external AI service or API key:
+
+- threat-priority scoring with auditable scoring factors;
+- district hotspot and spatio-temporal movement anomaly detection;
+- a natural-language operations copilot for routes, alerts, hotspots, and
+  camera health.
+
+Use `GET /ai/overview` and `POST /ai/copilot`, or open the dashboard. These
+features analyze metadata only and never transmit law-enforcement data outside
+the deployment boundary.
+
+Run verification with:
+
+```bash
+pip install -r requirements-dev.txt
+pytest -q
 ```
 
 `demo/run_pipeline.py` seeds 50 cameras across 25 Gujarat districts, a
@@ -95,7 +134,10 @@ sentinel-mesh/
 ├── api/
 │   └── main.py                # FastAPI REST + WebSocket backend
 ├── frontend/
-│   └── index.html             # command-console dashboard (map + live alerts)
+│   ├── src/                   # React command centre source
+│   └── dist/                  # production build served by FastAPI
+├── intelligence/
+│   └── service.py             # local risk scoring, anomalies, hotspots, copilot
 ├── ARCHITECTURE.md            # HLD content — architecture, diagrams, scaling
 └── requirements.txt
 ```

@@ -218,7 +218,59 @@ def touch_alert(alert_id, ts=None):
 def list_alerts(limit=100):
     with get_conn() as conn:
         return [dict(r) for r in conn.execute(
-            "SELECT * FROM alerts ORDER BY ts DESC LIMIT ?", (limit,)
+            """SELECT a.*, c.name AS camera_name, c.district, c.department
+               FROM alerts a
+               LEFT JOIN cameras c ON c.camera_id = a.camera_id
+               ORDER BY a.ts DESC LIMIT ?""", (limit,)
+        )]
+
+
+def get_alert(alert_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            """SELECT a.*, c.name AS camera_name, c.district, c.department
+               FROM alerts a
+               LEFT JOIN cameras c ON c.camera_id = a.camera_id
+               WHERE a.alert_id=?""",
+            (alert_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def acknowledge_alert(alert_id, acknowledged=True):
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE alerts SET acknowledged=? WHERE alert_id=?",
+            (1 if acknowledged else 0, alert_id),
+        )
+        return cur.rowcount > 0
+
+
+def list_recent_detections(limit=100, since=None):
+    query = """SELECT d.*, c.name AS camera_name, c.district, c.department
+               FROM detections d
+               LEFT JOIN cameras c ON c.camera_id = d.camera_id"""
+    params = []
+    if since is not None:
+        query += " WHERE d.ts >= ?"
+        params.append(since)
+    query += " ORDER BY d.ts DESC LIMIT ?"
+    params.append(limit)
+    with get_conn() as conn:
+        return [dict(r) for r in conn.execute(query, params)]
+
+
+def detection_timeline(since, bucket_seconds=3600):
+    """Return portable SQLite time buckets for the dashboard activity chart."""
+    with get_conn() as conn:
+        return [dict(r) for r in conn.execute(
+            """SELECT CAST((ts - ?) / ? AS INTEGER) AS bucket,
+                      detection_type, COUNT(*) AS count
+               FROM detections
+               WHERE ts >= ?
+               GROUP BY bucket, detection_type
+               ORDER BY bucket ASC""",
+            (since, bucket_seconds, since),
         )]
 
 

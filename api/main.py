@@ -11,21 +11,26 @@ for this pip install step, not for anything the app does at runtime):
 Then open frontend/index.html in a browser (it talks to http://localhost:8000).
 """
 
-import asyncio
 import sys
+import time
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import db
 from bus import bus
+from intelligence.service import answer_query, build_overview
 
-app = FastAPI(title="Sentinel Mesh API", version="0.1.0")
+app = FastAPI(
+    title="Sentinel Mesh API",
+    version="1.1.0",
+    description="Edge-correlated CCTV intelligence for the Gujarat command centre.",
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -68,7 +73,7 @@ class CameraIn(BaseModel):
 
 @app.post("/cameras")
 def create_camera(cam: CameraIn):
-    db.upsert_camera(cam.dict())
+    db.upsert_camera(cam.model_dump())
     return {"ok": True}
 
 
@@ -101,7 +106,18 @@ def get_watchlist_persons():
 
 @app.get("/alerts")
 def get_alerts(limit: int = 100):
-    return db.list_alerts(limit=limit)
+    return db.list_alerts(limit=max(1, min(limit, 500)))
+
+
+class AlertAcknowledgement(BaseModel):
+    acknowledged: bool = True
+
+
+@app.patch("/alerts/{alert_id}/acknowledge")
+def acknowledge_alert(alert_id: str, payload: AlertAcknowledgement):
+    if not db.acknowledge_alert(alert_id, payload.acknowledged):
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return db.get_alert(alert_id)
 
 
 # ---------- Vehicle movement / route reconstruction ----------
@@ -118,7 +134,6 @@ def get_camera(camera_id: str):
     cams = db.list_cameras()
     cam = next((c for c in cams if c["camera_id"] == camera_id), None)
     if cam is None:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Camera not found")
     return cam
 
@@ -139,7 +154,6 @@ def debug_ingest_catalogue(host: str, scheme: str = "http"):
         GET /api/ingest/debug?host=sandbox.example.org
         GET /api/ingest/debug?host=sandbox.example.org&scheme=https
     """
-    from fastapi import HTTPException
     from edge.live_ingest import fetch_catalogue
     base_url = f"{scheme}://{host}"
     try:
@@ -182,6 +196,58 @@ def get_stats():
     }
 
 
+# ---------- Local explainable intelligence ----------
+
+@app.get("/ai/overview")
+def ai_overview():
+    """Threat posture, prioritized alerts, hotspots, and anomaly evidence.
+
+    Runs entirely inside the deployment boundary; no cloud AI key is used.
+    """
+    return build_overview()
+
+
+class CopilotQuery(BaseModel):
+    question: str
+
+
+@app.post("/ai/copilot")
+def ai_copilot(query: CopilotQuery):
+    if not query.question.strip():
+        raise HTTPException(status_code=422, detail="Question cannot be empty")
+    return answer_query(query.question)
+
+
+@app.get("/detections/recent")
+def recent_detections(limit: int = 50):
+    return db.list_recent_detections(limit=max(1, min(limit, 500)))
+
+
+@app.get("/analytics/timeline")
+def activity_timeline(hours: int = 24):
+    hours = max(1, min(hours, 168))
+    bucket_seconds = 3600 if hours > 12 else 900
+    since = time.time() - hours * 3600
+    rows = db.detection_timeline(since, bucket_seconds)
+    buckets = {}
+    for row in rows:
+        index = int(row["bucket"])
+        bucket = buckets.setdefault(index, {
+            "ts": since + index * bucket_seconds,
+            "plate": 0,
+            "face": 0,
+            "total": 0,
+        })
+        count = int(row["count"])
+        bucket[row["detection_type"]] = count
+        bucket["total"] += count
+    return {
+        "hours": hours,
+        "bucket_seconds": bucket_seconds,
+        "series": [buckets[key] for key in sorted(buckets)],
+    }
+
+
 # ---------- Live alert feed over WebSocket ----------
 
 @app.websocket("/ws/alerts")
@@ -197,6 +263,7 @@ async def ws_alerts(websocket: WebSocket):
 
 
 # ---------- Serve the dashboard itself ----------
-frontend_dir = Path(__file__).parent.parent / "frontend"
+frontend_root = Path(__file__).parent.parent / "frontend"
+frontend_dir = frontend_root / "dist" if (frontend_root / "dist").exists() else frontend_root
 if frontend_dir.exists():
     app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")

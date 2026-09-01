@@ -1,6 +1,6 @@
 # Already used by the core pipeline (no internet needed — these ship with
 # most Python environments / were pre-available in the build sandbox):
-opencv-contrib-python>=4.8
+opencv-contrib-python>=4.8,<5
 numpy>=1.24
 
 # Needed only to run the REST/WebSocket API server (api/main.py):

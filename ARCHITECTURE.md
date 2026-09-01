@@ -78,7 +78,8 @@ retention policy, lat/lon, health status — lives in one table, regardless
 of who owns the physical hardware. This is what makes gap analysis
 ("which junctions in Dahod have no coverage?") and future onboarding
 possible without a redesign. **Prototype**: `db.py` + `seed_data.py`,
-50 cameras across 25 districts, GIS rendering in `frontend/index.html`.
+50 cameras across 25 districts, GIS rendering in the React application under
+`frontend/src`.
 
 ### 3.2 Edge inference tier
 Runs at the camera/NVR/regional-hub level. Two responsibilities only:
@@ -118,7 +119,7 @@ vehicle movement reconstruction (stitches a plate's detections across
 cameras into a timestamped route). Raw video is pulled on demand via
 RTSP/ONVIF proxy only when an operator opens a specific camera or
 responds to an alert — not streamed centrally at all times. Prototype:
-`frontend/index.html` + `api/main.py`.
+`frontend/src` + `api/main.py`.
 
 ## 4. AI / video analytics approach
 
@@ -234,14 +235,14 @@ Where this build matches, diverges, or defers, and why:
 |---|---|---|
 | Python | ✅ used throughout (edge pipeline, correlation engine, FastAPI) | |
 | RTSP | ✅ `edge/live_ingest.py` | TCP transport, PTS-driven timing |
-| WebRTC | ✅ WHEP client in the dashboard (`frontend/index.html`) | on-demand live preview — see below |
+| WebRTC | ✅ WHEP client in the React dashboard | on-demand live preview — see below |
 | FFmpeg | ✅ OpenCV's bundled FFMPEG backend | confirmed compiled in; no GStreamer install needed for this build |
 | Leaflet | ✅ dashboard map | |
 | PostgreSQL / PostGIS | 📋 documented swap-in, not yet executed | `db.py`'s schema is vanilla SQL specifically so this is a connection-string change |
 | Kafka / RabbitMQ | 📋 documented swap-in, not yet executed | `bus.py`'s interface (`publish`/`subscribe`) is already shaped to match |
 | TensorFlow / PyTorch | 📋 deep-tier swap-in point exists, not yet wired | EasyOCR/PaddleOCR/YOLOv8/InsightFace — the concrete options named throughout this doc — are themselves built on these frameworks |
 | GStreamer | 📋 alternative to the FFmpeg backend already in use | both are open-source and interchangeable at the ingestion layer; not needed twice |
-| React | ❌ vanilla HTML/JS used instead | deliberate: zero build step, nothing to fail on a demo laptop with unreliable internet. The backend is a clean REST + WebSocket API any frontend can consume — migrating the view layer to React later touches zero backend code |
+| React | ✅ production-built command-centre UI | compiled assets are served locally by FastAPI; no runtime React CDN dependency |
 | Node.js | ❌ Python used server-side instead | Python is *also* on the recommended list; FastAPI (Python) was chosen for one consistent language across the edge pipeline and the API rather than splitting the stack |
 | OpenLayers | ❌ Leaflet used instead | both are open-source; Leaflet was simply lighter for this scope |
 
