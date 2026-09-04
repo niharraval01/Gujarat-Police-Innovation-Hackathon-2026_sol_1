@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Car, ImagePlus, LoaderCircle, RotateCw, Trash2, UserRound, X } from "lucide-react";
-import { api } from "../lib/api";
+import { api, isDemoMode } from "../lib/api";
 
 const EMPTY_VEHICLE = { plate_number: "", reason: "stolen", notes: "" };
 const EMPTY_PERSON = { person_id: "", name: "", reason: "wanted", notes: "" };
@@ -108,7 +108,7 @@ export default function WatchlistModal({ open, onClose, onChanged }) {
     setBusy(true);
     try {
       await api(`/watchlist/persons/${encodeURIComponent(entry.person_id)}`, { method: "DELETE" });
-      setNotice(`${entry.name || entry.person_id} removed. Restart the live pipeline to refresh enrollment.`);
+      setNotice(isDemoMode ? `${entry.name || entry.person_id} removed from this browser's demo data.` : `${entry.name || entry.person_id} removed. Restart the live pipeline to refresh enrollment.`);
       await load();
       onChanged?.();
     } catch (err) {
@@ -159,7 +159,7 @@ export default function WatchlistModal({ open, onClose, onChanged }) {
                 <label className="wide">Operator notes<textarea maxLength="1000" placeholder="Case reference or identifying context" value={person.notes} onChange={(event) => setPerson({ ...person, notes: event.target.value })} /></label>
                 <button className="primary-action" disabled={busy}>{busy ? <LoaderCircle size={15} className="spinning" /> : <UserRound size={15} />} Save & stage enrollment</button>
               </form>
-              <div className="restart-advisory"><RotateCw size={15} /><span>Face enrollment updates when <b>demo/run_live.py</b> next starts. Hot reload is not enabled in this prototype.</span></div>
+              <div className="restart-advisory"><RotateCw size={15} /><span>{isDemoMode ? <>Public-demo photo selections are represented as browser-local records; images are not uploaded. Use the FastAPI deployment for actual LBPH enrollment.</> : <>Face enrollment updates when <b>demo/run_live.py</b> next starts. Hot reload is not enabled in this prototype.</>}</span></div>
               <WatchlistEntries entries={persons} type="person" onRemove={removePerson} />
             </>
           )}

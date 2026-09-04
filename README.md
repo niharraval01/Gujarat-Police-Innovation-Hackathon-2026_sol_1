@@ -81,6 +81,24 @@ FastAPI serves `frontend/dist` automatically when the build exists. During UI
 development, run `npm run dev`; Vite proxies the API and WebSocket routes to
 port 8000.
 
+### GitHub Pages public demonstration
+
+The repository includes `.github/workflows/pages.yml`, which builds and
+publishes the React dashboard whenever `main` changes. The public site is:
+
+<https://niharraval01.github.io/Gujarat-Police-Innovation-Hackathon-2026_sol_1/>
+
+GitHub Pages is static hosting, so the published dashboard runs in an explicit
+**Public demonstration** mode. It uses representative synthetic data and saves
+watchlist/triage changes only in the visitor's browser. It does not upload face
+photos or claim a live police connection. The normal local build remains the
+full FastAPI + SQLite + WebSocket application described above.
+
+To connect Pages to a separately secured public backend later, add a repository
+Actions variable named `SENTINEL_API_BASE_URL`. That backend must independently
+provide HTTPS/WSS, authentication, a persistent database, upload storage, and a
+restricted CORS policy before it is suitable for operational data.
+
 ### Local AI capabilities
 
 `intelligence/service.py` provides three explainable, on-premise features

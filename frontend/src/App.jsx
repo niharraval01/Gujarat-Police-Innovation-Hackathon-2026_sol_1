@@ -10,7 +10,7 @@ import AICopilot from "./components/AICopilot";
 import LiveViewModal from "./components/LiveViewModal";
 import WatchlistModal from "./components/WatchlistModal";
 import { AboutProject, OperatorGuide } from "./components/InfoPages";
-import { alertSocket, api, formatTime } from "./lib/api";
+import { alertSocket, api, assetUrl, formatTime, isDemoMode } from "./lib/api";
 
 const EMPTY_STATS = { total_cameras: 0, online: 0, offline: 0, degraded: 0, districts: 0, total_alerts: 0 };
 const EMPTY_AI = { risk_score: 0, posture: "low", narrative: "Analyzing operational data…", metrics: {}, priority_alerts: [], hotspots: [], anomalies: [], recommendations: [] };
@@ -98,7 +98,7 @@ export default function App() {
     if (typeof Notification !== "undefined" && Notification.permission === "granted") {
       const notification = new Notification(`Sentinel alert · ${incoming.match_key}`, {
         body: `${incoming.reason || "Watchlist match"} at ${incoming.camera_id}`,
-        icon: "/brand/gujarat-police.png",
+        icon: assetUrl("brand/gujarat-police.png"),
         tag: incoming.alert_id,
       });
       notification.onclick = () => {
@@ -186,7 +186,7 @@ export default function App() {
       <aside className={`sidebar ${mobileNav ? "open" : ""}`}>
         <div className="brand-block">
           <a className="government-brand" href="https://sentinel.gujarat.gov.in/" target="_blank" rel="noreferrer">
-            <img src="/brand/gujarat-police.png" alt="Gujarat Police crest" />
+            <img src={assetUrl("brand/gujarat-police.png")} alt="Gujarat Police crest" />
             <span><strong>Government of Gujarat</strong><b>Home Department</b><small>Sentinel Mesh</small></span>
           </a>
           <button className="mobile-close" onClick={() => setMobileNav(false)}><X size={19} /></button>
@@ -199,7 +199,7 @@ export default function App() {
             </a>
           ))}
           <span className="nav-label second">System</span>
-          <a href="/docs" target="_blank" rel="noreferrer"><Database size={18} /><span>API console</span></a>
+          <a href={isDemoMode ? "https://github.com/niharraval01/Gujarat-Police-Innovation-Hackathon-2026_sol_1/blob/main/api/main.py" : "/docs"} target="_blank" rel="noreferrer"><Database size={18} /><span>{isDemoMode ? "API source" : "API console"}</span></a>
           <a href="#fleet" onClick={(event) => { event.preventDefault(); navigate("overview", "fleet"); }}><Camera size={18} /><span>Camera fleet</span></a>
           <span className="nav-label second">Help & project</span>
           <a href="#guide" className={view === "guide" ? "active" : ""} onClick={(event) => { event.preventDefault(); navigate("guide"); }}><BookOpenCheck size={18} /><span>How to operate</span></a>
@@ -207,7 +207,7 @@ export default function App() {
         </nav>
         <div className="edge-status">
           <div className="edge-icon"><Sparkles size={17} /></div>
-          <div><strong>Edge AI active</strong><span>Local inference · secured</span></div>
+          <div><strong>{isDemoMode ? "Demo intelligence" : "Edge AI active"}</strong><span>{isDemoMode ? "Synthetic · browser-local" : "Local inference · secured"}</span></div>
           <i />
         </div>
         <div className="sidebar-foot"><span>SM-KRNR-2026</span><strong>v1.2.0</strong></div>
@@ -222,12 +222,13 @@ export default function App() {
             <div className="time-block"><strong>{clock.toLocaleTimeString("en-IN", { hour12: false })}</strong><small>IST · {clock.toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}</small></div>
             <button className="topbar-action" onClick={() => setWatchlistOpen(true)} title="Manage vehicle and person watchlists"><ListPlus size={16} /> <span>Watchlist</span></button>
             <button className={`topbar-action ${alertSoundsEnabled ? "enabled" : ""}`} onClick={enableOperatorAlerts} title={notificationPermission === "denied" ? "Sound enabled; browser notifications are blocked" : "Enable alert sound and request desktop notifications"}><Volume2 size={16} /> <span>{alertSoundsEnabled ? "Alerts on" : "Enable alerts"}</span></button>
-            <button className={`connection ${connected ? "online" : "offline"}`}><i /> {connected ? "Mesh online" : "Disconnected"}</button>
+            <button className={`connection ${connected ? "online" : "offline"}`}><i /> {connected ? (isDemoMode ? "Public demo" : "Mesh online") : "Disconnected"}</button>
             <button className="refresh-button" onClick={() => loadData()} title="Refresh"><RefreshCw size={17} className={loading ? "spinning" : ""} /></button>
           </div>
         </header>
 
         <div className="content" id="overview">
+          {isDemoMode && <div className="demo-banner"><ShieldCheck size={17} /><span><strong>Public demonstration</strong> · Synthetic data is saved only in this browser. Run the FastAPI deployment for real feeds, persistent enrollment, and live WebSocket alerts.</span></div>}
           {error && <div className="error-banner"><TriangleAlert size={17} /> API unavailable: {error}</div>}
           <div className={view === "overview" ? "dashboard-view" : "dashboard-view view-hidden"}>
           <section className="hero-strip">
@@ -235,7 +236,7 @@ export default function App() {
               <span className="eyebrow"><Activity size={12} /> Government of Gujarat · Home Department</span>
               <h1>Good {clock.getHours() < 12 ? "morning" : clock.getHours() < 17 ? "afternoon" : "evening"}, Control Room.</h1>
               <p>{intelligence.narrative}</p>
-              <div className="hero-actions"><a href="#alerts">Review priority alerts <ChevronRight size={15} /></a><span><ShieldCheck size={15} /> Analysis stays on-premise</span></div>
+              <div className="hero-actions"><a href="#alerts">Review priority alerts <ChevronRight size={15} /></a><span><ShieldCheck size={15} /> {isDemoMode ? "Synthetic demonstration data" : "Analysis stays on-premise"}</span></div>
             </div>
             <div className="posture-card">
               <RiskRing score={intelligence.risk_score} posture={intelligence.posture} />
@@ -276,7 +277,7 @@ export default function App() {
             <div className="fleet-table"><div className="fleet-head"><span>Camera</span><span>District</span><span>VMS / Vendor</span><span>Transport</span><span>Status</span></div>{cameras.slice(0, 8).map((camera) => <button className="fleet-row" key={camera.camera_id} onClick={() => { setSelectedCamera(camera); document.getElementById("map")?.scrollIntoView({ behavior: "smooth" }); }}><span><i className={`camera-state ${camera.status}`} /><div><strong>{camera.camera_id}</strong><small>{camera.name}</small></div></span><span>{camera.district}</span><span>{camera.vms_platform || camera.vendor}</span><span>{camera.connectivity}</span><span className={`status-tag ${camera.status}`}>{camera.status}</span></button>)}</div>
           </section>
 
-          <footer><span>Government of Gujarat · Home Department · Sentinel Mesh</span><span>OpenStreetMap · FastAPI · React · OpenCV · <b>SM-KRNR-2026</b></span></footer>
+          <footer><span>Government of Gujarat · Home Department · Sentinel Mesh</span><span>{isDemoMode ? "GitHub Pages public demo · browser-local synthetic data" : "OpenStreetMap · FastAPI · React · OpenCV"} · <b>SM-KRNR-2026</b></span></footer>
           </div>
           {view === "guide" && <OperatorGuide onOpenDashboard={() => navigate("overview")} />}
           {view === "about" && <AboutProject />}

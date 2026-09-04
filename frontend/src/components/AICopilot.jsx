@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { Bot, CornerDownLeft, Sparkles } from "lucide-react";
-import { api } from "../lib/api";
+import { api, isDemoMode } from "../lib/api";
 
 const STARTERS = ["Which districts are highest risk?", "Show stolen vehicle alerts", "How is camera health?", "Trace GJ06AB1234"];
 
 export default function AICopilot() {
   const [question, setQuestion] = useState("");
-  const [messages, setMessages] = useState([{ role: "ai", text: "Ask me about routes, watchlist alerts, hotspots, or camera health. All analysis stays on this machine." }]);
+  const [messages, setMessages] = useState([{ role: "ai", text: isDemoMode ? "Ask me about the synthetic routes, alerts, hotspots, or camera health in this public demonstration." : "Ask me about routes, watchlist alerts, hotspots, or camera health. All analysis stays on this machine." }]);
   const [busy, setBusy] = useState(false);
 
   async function ask(value = question) {
@@ -32,7 +32,7 @@ export default function AICopilot() {
           <span className="eyebrow"><Sparkles size={12} /> Local intelligence</span>
           <h2>Sentinel Copilot</h2>
         </div>
-        <span className="local-badge">ON-PREMISE</span>
+        <span className="local-badge">{isDemoMode ? "DEMO ENGINE" : "ON-PREMISE"}</span>
       </div>
       <div className="chat-window">
         {messages.slice(-5).map((message, index) => (

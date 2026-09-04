@@ -84,6 +84,9 @@ main { min-width: 0; grid-column: 2; }
 
 .content { width: min(1600px, 100%); margin: 0 auto; padding: 26px 30px 16px; }
 .error-banner { display: flex; align-items: center; gap: 9px; margin-bottom: 16px; padding: 11px 14px; border: 1px solid rgba(255,91,104,.28); border-radius: 9px; background: rgba(255,91,104,.08); color: #ff9199; font-size: 12px; }
+.demo-banner { display: flex; align-items: center; gap: 9px; margin-bottom: 16px; padding: 11px 14px; border: 1px solid var(--border-strong); border-left: 4px solid var(--blue); border-radius: 9px; background: var(--surface); color: var(--muted); font-size: 11px; line-height: 1.5; }
+.demo-banner svg { flex: 0 0 auto; color: var(--blue); }
+.demo-banner strong { color: var(--text); }
 .eyebrow { display: inline-flex; align-items: center; gap: 5px; color: #6f879e; font-size: 9px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
 .hero-strip { position: relative; overflow: hidden; display: flex; align-items: center; justify-content: space-between; min-height: 164px; padding: 23px 28px; border: 1px solid var(--border); border-radius: 14px; background: linear-gradient(106deg, rgba(13,31,52,.96), rgba(8,19,33,.8)); box-shadow: var(--shadow); }
 .hero-strip::before { content: ""; position: absolute; width: 400px; height: 400px; right: -90px; top: -280px; border: 1px solid rgba(109,225,255,.12); border-radius: 50%; box-shadow: 0 0 0 55px rgba(109,225,255,.018), 0 0 0 110px rgba(109,225,255,.012); }

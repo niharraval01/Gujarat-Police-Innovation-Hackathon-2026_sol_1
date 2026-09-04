@@ -1,6 +1,13 @@
-const API_BASE = window.location.origin.startsWith("file") ? "http://127.0.0.1:8000" : "";
+import { demoAlertSocket, demoApi } from "./demoApi";
+
+const CONFIGURED_API_BASE = String(import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+const API_BASE = CONFIGURED_API_BASE || (window.location.origin.startsWith("file") ? "http://127.0.0.1:8000" : "");
+
+export const isDemoMode = import.meta.env.VITE_DEMO_MODE === "true" && !CONFIGURED_API_BASE;
+export const assetUrl = (path) => `${import.meta.env.BASE_URL}${String(path).replace(/^\/+/, "")}`;
 
 export async function api(path, options = {}) {
+  if (isDemoMode) return demoApi(path, options);
   const isFormData = options.body instanceof FormData;
   const headers = isFormData
     ? { ...options.headers }
@@ -17,6 +24,7 @@ export async function api(path, options = {}) {
 }
 
 export function alertSocket() {
+  if (isDemoMode) return demoAlertSocket();
   const base = API_BASE || window.location.origin;
   return new WebSocket(`${base.replace(/^http/, "ws")}/ws/alerts`);
 }

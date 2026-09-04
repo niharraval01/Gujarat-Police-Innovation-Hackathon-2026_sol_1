@@ -2,6 +2,7 @@ import {
   BellRing, BookOpenCheck, Bot, Camera, CheckCircle2, Database, ExternalLink,
   Eye, Fingerprint, Map, Network, Play, Route, Satellite, ShieldCheck, Users,
 } from "lucide-react";
+import { assetUrl } from "../lib/api";
 
 const OFFICIAL_SITE = "https://sentinel.gujarat.gov.in/";
 
@@ -13,7 +14,7 @@ function PageIntro({ eyebrow, title, children }) {
         <h1>{title}</h1>
         <p>{children}</p>
       </div>
-      <img src="/brand/gujarat-police.png" alt="Gujarat Police crest" />
+      <img src={assetUrl("brand/gujarat-police.png")} alt="Gujarat Police crest" />
     </div>
   );
 }
@@ -127,7 +128,7 @@ export function AboutProject() {
       </section>
 
       <section className="official-reference info-panel">
-        <img src="/brand/gujarat-police.png" alt="Gujarat Police crest" />
+        <img src={assetUrl("brand/gujarat-police.png")} alt="Gujarat Police crest" />
         <div><strong>Government of Gujarat</strong><span>Home Department</span><p>Built as an independent hackathon prototype in support of unified, secure, and intelligent CCTV operations.</p></div>
         <a href={OFFICIAL_SITE} target="_blank" rel="noreferrer">Official challenge portal <ExternalLink size={14} /></a>
       </section>

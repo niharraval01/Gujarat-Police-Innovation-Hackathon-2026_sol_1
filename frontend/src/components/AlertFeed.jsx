@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Check, LocateFixed, ShieldAlert, UserRound, Car, RotateCcw } from "lucide-react";
-import { api, relativeTime } from "../lib/api";
+import { api, isDemoMode, relativeTime } from "../lib/api";
 
 const STATUS_TABS = [
   ["new", "New"],
@@ -40,7 +40,7 @@ export default function AlertFeed({ alerts, status, unreadCount, onStatusChange,
           <span className="eyebrow">Operator triage queue</span>
           <h2>Priority alerts {unreadCount > 0 && <b className="unread-badge" aria-label={`${unreadCount} unacknowledged alerts`}>{unreadCount > 99 ? "99+" : unreadCount}</b>}</h2>
         </div>
-        <span className="live-pill"><i /> WebSocket live</span>
+        <span className="live-pill"><i /> {isDemoMode ? "Demo event channel" : "WebSocket live"}</span>
       </div>
       <div className="alert-tabs" role="tablist" aria-label="Alert status">
         {STATUS_TABS.map(([value, label]) => (

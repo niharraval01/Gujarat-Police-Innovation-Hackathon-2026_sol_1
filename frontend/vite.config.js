@@ -1,7 +1,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  base: mode === "github-pages"
+    ? "/Gujarat-Police-Innovation-Hackathon-2026_sol_1/"
+    : "/",
   plugins: [react()],
   build: {
     outDir: "dist",
@@ -23,4 +26,4 @@ export default defineConfig({
       "/ws": { target: "ws://127.0.0.1:8000", ws: true },
     },
   },
-});
+}));
