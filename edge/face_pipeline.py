@@ -16,8 +16,15 @@ this to statewide AFIS/NAFIS-linked watchlists). The public interface
 is written so that swap requires no changes in correlation/engine.py.
 """
 
+from pathlib import Path
+
 import cv2
 import numpy as np
+
+import db
+
+
+WATCHLIST_FACE_ROOT = Path(__file__).parent.parent / "data" / "watchlist_faces"
 
 
 class FaceDetector:
@@ -79,3 +86,53 @@ class FaceRecognizer:
         if distance <= self.confidence_threshold:
             return label, similarity
         return None, similarity
+
+
+def enroll_saved_watchlist_faces(face_recognizer, faces_root=None, detector=None):
+    """Enroll persisted watchlist photos under stable database label IDs."""
+    root = Path(faces_root or WATCHLIST_FACE_ROOT)
+    if not root.exists():
+        return {"people": 0, "photos": 0, "skipped": []}
+
+    detector = detector or FaceDetector()
+    enrollment = {}
+    skipped = []
+    photo_count = 0
+
+    for person_dir in sorted(path for path in root.iterdir() if path.is_dir()):
+        person_id = person_dir.name
+        person = db.get_watchlist_person(person_id)
+        if person is None:
+            skipped.append({"person_id": person_id, "reason": "not in watchlist database"})
+            continue
+
+        label_id = db.ensure_person_face_label(person_id)
+        samples = []
+        photo_paths = sorted(
+            path for path in person_dir.iterdir()
+            if path.is_file() and path.suffix.lower() in {".jpg", ".jpeg", ".png"}
+        )
+        for photo_path in photo_paths:
+            image = cv2.imread(str(photo_path), cv2.IMREAD_COLOR)
+            if image is None:
+                skipped.append({"person_id": person_id, "photo": photo_path.name, "reason": "unreadable image"})
+                continue
+            faces = detector.detect(image)
+            if faces:
+                # Use the largest detected face when a reference image contains
+                # multiple people; it is normally the intended subject.
+                crop = max(faces, key=lambda face: face["box"][2] * face["box"][3])["crop"]
+            else:
+                # Close-cropped faces do not always trigger Haar. Falling back
+                # to the full image keeps enrollment offline and predictable.
+                crop = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            samples.append(crop)
+            photo_count += 1
+
+        if samples:
+            enrollment[int(label_id)] = samples
+        else:
+            skipped.append({"person_id": person_id, "reason": "no usable photos"})
+
+    face_recognizer.enroll(enrollment)
+    return {"people": len(enrollment), "photos": photo_count, "skipped": skipped}

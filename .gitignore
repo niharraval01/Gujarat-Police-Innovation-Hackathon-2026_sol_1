@@ -6,3 +6,6 @@ __pycache__/
 uvicorn.stdout.log
 uvicorn.stderr.log
 npm-debug.log*
+.local-backups/
+data/watchlist_faces/*
+!data/watchlist_faces/.gitkeep

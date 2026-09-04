@@ -1,15 +1,19 @@
 const API_BASE = window.location.origin.startsWith("file") ? "http://127.0.0.1:8000" : "";
 
 export async function api(path, options = {}) {
+  const isFormData = options.body instanceof FormData;
+  const headers = isFormData
+    ? { ...options.headers }
+    : { "Content-Type": "application/json", ...options.headers };
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...options.headers },
     ...options,
+    headers,
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
     throw new Error(payload.detail || `Request failed (${response.status})`);
   }
-  return response.json();
+  return response.status === 204 ? null : response.json();
 }
 
 export function alertSocket() {

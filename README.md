@@ -95,6 +95,33 @@ Use `GET /ai/overview` and `POST /ai/copilot`, or open the dashboard. These
 features analyze metadata only and never transmit law-enforcement data outside
 the deployment boundary.
 
+### Watchlist operations
+
+Use the **Watchlist** action in the dashboard header to manage targets without
+editing seed data:
+
+- vehicle records accept a normalized plate, reason, and operator notes;
+- person records accept a stable person ID plus 1-8 JPEG/PNG reference photos;
+- reference images are normalized to JPEG under
+  `data/watchlist_faces/<person_id>/` and are not stored in SQLite;
+- deleting a person removes both the database record and saved photos.
+
+Person enrollment is startup-only. Restart `demo/run_live.py` after adding or
+removing a person's photos. On startup it scans the reference folders, assigns
+or reuses the stable `face_label_id`, and trains the offline LBPH recognizer.
+Hot reload is not enabled while camera workers may be using that recognizer.
+
+### Alert triage and operator notifications
+
+The alert panel has **New**, **Acknowledged**, and **All** queues. Operators can
+attach a note while acknowledging an alert; acknowledged items immediately
+leave the New queue. `GET /alerts` defaults to `status=new` and also accepts
+`status=acknowledged` or `status=all`.
+
+Browser sound and desktop notifications are opt-in. Select **Enable alerts**
+in the header to unlock the Web Audio beep and, where supported, request native
+notification permission. The page never prompts automatically on load.
+
 Run verification with:
 
 ```bash
@@ -200,15 +227,16 @@ constant. This build now has a dedicated layer for that:
   tolerance, discontinuity detection) is verified against a scripted mock
   capture instead of a real RTSP server. Run this, and
   `python3 -c "..."`-style checks in this README's history, before trusting
-  `run_live.py` against the real grid.
+  `run_live.py` against the real grid. The live runner enrolls saved dashboard
+  reference photos automatically at startup.
 
 **Before the live evaluation:** the catalogue's exact JSON key names
 aren't given in the reference doc, only described in prose. The moment you
 have real access, run `fetch_catalogue()` once, print an entry's `raw`
 field, and tighten `_normalize_entry()` in `edge/live_ingest.py` to match
-exactly — don't trust the defensive guess under time pressure. Also call
-`face_recognizer.enroll(...)` with real watchlist photos before relying on
-person alerts; an untrained recognizer never matches, by design.
+exactly. Upload real watchlist face photos in the dashboard and restart the
+live runner before relying on person alerts; an untrained recognizer never
+matches, by design.
 
 ## Honesty notes (what's simulated vs. what's real)
 

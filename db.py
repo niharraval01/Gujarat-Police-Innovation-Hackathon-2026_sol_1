@@ -78,12 +78,14 @@ CREATE TABLE IF NOT EXISTS alerts (
     confidence       REAL,
     lat             REAL,
     lon             REAL,
-    acknowledged    INTEGER DEFAULT 0
+    acknowledged    INTEGER DEFAULT 0,
+    operator_notes  TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_detections_value ON detections(raw_value);
 CREATE INDEX IF NOT EXISTS idx_detections_camera_ts ON detections(camera_id, ts);
 CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts(ts);
+CREATE INDEX IF NOT EXISTS idx_alerts_acknowledged_ts ON alerts(acknowledged, ts DESC);
 """
 
 
@@ -104,6 +106,16 @@ def init_db(reset=False):
         DB_PATH.unlink()
     with get_conn() as conn:
         conn.executescript(SCHEMA)
+        # Additive migration for databases created before alert triage shipped.
+        # CREATE TABLE IF NOT EXISTS does not add columns to an existing table.
+        alert_columns = {row["name"] for row in conn.execute("PRAGMA table_info(alerts)")}
+        if "operator_notes" not in alert_columns:
+            conn.execute("ALTER TABLE alerts ADD COLUMN operator_notes TEXT")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_alerts_acknowledged_ts "
+            "ON alerts(acknowledged, ts DESC)"
+        )
+        conn.execute("PRAGMA optimize")
 
 
 # ---------- Cameras ----------
@@ -147,7 +159,10 @@ def add_watchlist_vehicle(plate_number, reason, source_system="manual", notes=""
         conn.execute(
             """INSERT INTO watchlist_vehicles (plate_number, reason, source_system, added_at, notes)
                VALUES (?,?,?,?,?)
-               ON CONFLICT(plate_number) DO UPDATE SET reason=excluded.reason""",
+               ON CONFLICT(plate_number) DO UPDATE SET
+                 reason=excluded.reason,
+                 source_system=excluded.source_system,
+                 notes=excluded.notes""",
             (plate_number.upper().replace(" ", ""), reason, source_system, time.time(), notes),
         )
 
@@ -157,12 +172,24 @@ def list_watchlist_vehicles():
         return [dict(r) for r in conn.execute("SELECT * FROM watchlist_vehicles")]
 
 
+def delete_watchlist_vehicle(plate_number):
+    normalized = plate_number.upper().replace(" ", "")
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM watchlist_vehicles WHERE plate_number=?", (normalized,))
+        return cur.rowcount > 0
+
+
 def add_watchlist_person(person_id, name, reason, face_label_id=None, source_system="manual", notes=""):
     with get_conn() as conn:
         conn.execute(
             """INSERT INTO watchlist_persons (person_id, name, reason, source_system, face_label_id, added_at, notes)
                VALUES (?,?,?,?,?,?,?)
-               ON CONFLICT(person_id) DO UPDATE SET reason=excluded.reason""",
+               ON CONFLICT(person_id) DO UPDATE SET
+                 name=excluded.name,
+                 reason=excluded.reason,
+                 source_system=excluded.source_system,
+                 notes=excluded.notes,
+                 face_label_id=COALESCE(watchlist_persons.face_label_id, excluded.face_label_id)""",
             (person_id, name, reason, source_system, face_label_id, time.time(), notes),
         )
 
@@ -170,6 +197,46 @@ def add_watchlist_person(person_id, name, reason, face_label_id=None, source_sys
 def list_watchlist_persons():
     with get_conn() as conn:
         return [dict(r) for r in conn.execute("SELECT * FROM watchlist_persons")]
+
+
+def get_watchlist_person(person_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM watchlist_persons WHERE person_id=?", (person_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def ensure_person_face_label(person_id):
+    """Return a person's stable LBPH integer label, assigning it once.
+
+    BEGIN IMMEDIATE serializes label allocation so two simultaneous uploads
+    cannot receive the same label.
+    """
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT face_label_id FROM watchlist_persons WHERE person_id=?", (person_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        if row["face_label_id"] is not None:
+            return int(row["face_label_id"])
+        max_row = conn.execute(
+            "SELECT COALESCE(MAX(face_label_id), 0) AS max_label FROM watchlist_persons"
+        ).fetchone()
+        label = int(max_row["max_label"]) + 1
+        conn.execute(
+            "UPDATE watchlist_persons SET face_label_id=? WHERE person_id=?",
+            (label, person_id),
+        )
+        return label
+
+
+def delete_watchlist_person(person_id):
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM watchlist_persons WHERE person_id=?", (person_id,))
+        return cur.rowcount > 0
 
 
 def find_person_by_label(face_label_id):
@@ -215,12 +282,20 @@ def touch_alert(alert_id, ts=None):
         conn.execute("UPDATE alerts SET last_seen=? WHERE alert_id=?", (ts or time.time(), alert_id))
 
 
-def list_alerts(limit=100):
+def list_alerts(limit=100, status="all"):
+    where = ""
+    if status == "new":
+        where = "WHERE a.acknowledged=0"
+    elif status == "acknowledged":
+        where = "WHERE a.acknowledged=1"
+    elif status != "all":
+        raise ValueError("status must be one of: new, acknowledged, all")
     with get_conn() as conn:
         return [dict(r) for r in conn.execute(
-            """SELECT a.*, c.name AS camera_name, c.district, c.department
+            f"""SELECT a.*, c.name AS camera_name, c.district, c.department
                FROM alerts a
                LEFT JOIN cameras c ON c.camera_id = a.camera_id
+               {where}
                ORDER BY a.ts DESC LIMIT ?""", (limit,)
         )]
 
@@ -237,12 +312,18 @@ def get_alert(alert_id):
         return dict(row) if row else None
 
 
-def acknowledge_alert(alert_id, acknowledged=True):
+def acknowledge_alert(alert_id, acknowledged=True, operator_notes=None):
     with get_conn() as conn:
-        cur = conn.execute(
-            "UPDATE alerts SET acknowledged=? WHERE alert_id=?",
-            (1 if acknowledged else 0, alert_id),
-        )
+        if operator_notes is None:
+            cur = conn.execute(
+                "UPDATE alerts SET acknowledged=? WHERE alert_id=?",
+                (1 if acknowledged else 0, alert_id),
+            )
+        else:
+            cur = conn.execute(
+                "UPDATE alerts SET acknowledged=?, operator_notes=? WHERE alert_id=?",
+                (1 if acknowledged else 0, operator_notes.strip(), alert_id),
+            )
         return cur.rowcount > 0
 
 

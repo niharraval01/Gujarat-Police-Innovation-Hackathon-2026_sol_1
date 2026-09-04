@@ -38,7 +38,7 @@ from bus import bus
 from correlation.engine import CorrelationEngine
 from edge.plate_detector import PlateDetector
 from edge.plate_ocr import TieredPlateReader
-from edge.face_pipeline import FaceDetector, FaceRecognizer
+from edge.face_pipeline import FaceDetector, FaceRecognizer, enroll_saved_watchlist_faces
 from edge.live_ingest import fetch_catalogue, LiveRTSPSource
 
 
@@ -122,7 +122,17 @@ def main():
     plate_detector = PlateDetector()
     plate_reader = TieredPlateReader()
     face_detector = FaceDetector()
-    face_recognizer = FaceRecognizer()  # call .enroll(...) with real watchlist photos before relying on this
+    face_recognizer = FaceRecognizer()
+    # Enrollment is startup-only in this pass. Restart this live pipeline after
+    # adding or removing person photos; there is no recognizer hot-reload while
+    # camera worker threads may be calling predict().
+    enrollment = enroll_saved_watchlist_faces(face_recognizer, detector=face_detector)
+    print(
+        f"Enrolled {enrollment['people']} watchlist person(s) from "
+        f"{enrollment['photos']} reference photo(s)."
+    )
+    if enrollment["skipped"]:
+        print(f"Skipped {len(enrollment['skipped'])} enrollment item(s): {enrollment['skipped']}")
     engine = CorrelationEngine(event_bus=bus)
 
     deadline = time.time() + args.seconds

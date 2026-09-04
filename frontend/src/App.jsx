@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, BellRing, Bot, Camera, ChevronRight, CircleGauge, Database, Eye,
   BookOpenCheck, Info, LayoutDashboard, Menu, Network, RefreshCw, Search,
-  ShieldCheck, Sparkles, TriangleAlert, Wifi, X,
+  ShieldCheck, Sparkles, TriangleAlert, Wifi, X, ListPlus, Volume2,
 } from "lucide-react";
 import MapPanel from "./components/MapPanel";
 import AlertFeed from "./components/AlertFeed";
 import AICopilot from "./components/AICopilot";
 import LiveViewModal from "./components/LiveViewModal";
+import WatchlistModal from "./components/WatchlistModal";
 import { AboutProject, OperatorGuide } from "./components/InfoPages";
 import { alertSocket, api, formatTime } from "./lib/api";
 
@@ -47,12 +48,20 @@ export default function App() {
   const [clock, setClock] = useState(new Date());
   const [mobileNav, setMobileNav] = useState(false);
   const [view, setView] = useState("overview");
+  const [watchlistOpen, setWatchlistOpen] = useState(false);
+  const [alertStatus, setAlertStatus] = useState("new");
+  const [alertSoundsEnabled, setAlertSoundsEnabled] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState(
+    typeof Notification === "undefined" ? "unsupported" : Notification.permission,
+  );
+  const audioContextRef = useRef(null);
+  const alertSoundsEnabledRef = useRef(false);
 
   const loadData = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     try {
       const [statsData, cameraData, alertData, aiData, detectionData] = await Promise.all([
-        api("/stats"), api("/cameras"), api("/alerts?limit=50"), api("/ai/overview"), api("/detections/recent?limit=20"),
+        api("/stats"), api("/cameras"), api(`/alerts?limit=50&status=${alertStatus}`), api("/ai/overview"), api("/detections/recent?limit=20"),
       ]);
       setStats(statsData);
       setCameras(cameraData);
@@ -67,7 +76,51 @@ export default function App() {
     } finally {
       setLoading(false);
     }
+  }, [alertStatus]);
+
+  const signalNewAlert = useCallback((incoming) => {
+    if (!alertSoundsEnabledRef.current) return;
+    const context = audioContextRef.current;
+    if (context) {
+      if (context.state === "suspended") context.resume().catch(() => {});
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(740, context.currentTime);
+      oscillator.frequency.exponentialRampToValueAtTime(980, context.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.0001, context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.12, context.currentTime + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.18);
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.2);
+    }
+    if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+      const notification = new Notification(`Sentinel alert · ${incoming.match_key}`, {
+        body: `${incoming.reason || "Watchlist match"} at ${incoming.camera_id}`,
+        icon: "/brand/gujarat-police.png",
+        tag: incoming.alert_id,
+      });
+      notification.onclick = () => {
+        window.focus();
+        document.getElementById("alerts")?.scrollIntoView({ behavior: "smooth" });
+        notification.close();
+      };
+    }
   }, []);
+
+  async function enableOperatorAlerts() {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (AudioContext && !audioContextRef.current) audioContextRef.current = new AudioContext();
+    if (audioContextRef.current?.state === "suspended") await audioContextRef.current.resume();
+    alertSoundsEnabledRef.current = true;
+    setAlertSoundsEnabled(true);
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      setNotificationPermission(await Notification.requestPermission());
+    } else if (typeof Notification !== "undefined") {
+      setNotificationPermission(Notification.permission);
+    }
+  }
 
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => {
@@ -85,7 +138,7 @@ export default function App() {
       socket.onopen = () => setConnected(true);
       socket.onmessage = (event) => {
         const incoming = JSON.parse(event.data);
-        setAlerts((current) => [incoming, ...current.filter((item) => item.alert_id !== incoming.alert_id)]);
+        signalNewAlert(incoming);
         loadData(true);
       };
       socket.onerror = () => setConnected(false);
@@ -96,11 +149,11 @@ export default function App() {
     }
     connect();
     return () => { disposed = true; clearTimeout(retry); if (socket) socket.close(); };
-  }, [loadData]);
+  }, [loadData, signalNewAlert]);
 
   const cameraById = useMemo(() => Object.fromEntries(cameras.map((camera) => [camera.camera_id, camera])), [cameras]);
   const locateCamera = (id) => { const camera = cameraById[id]; if (camera) { setSelectedCamera(camera); document.getElementById("map")?.scrollIntoView({ behavior: "smooth" }); } };
-  const updateAlert = (updated) => { setAlerts((current) => current.map((item) => item.alert_id === updated.alert_id ? updated : item)); loadData(true); };
+  const updateAlert = () => { loadData(true); };
   const navigate = (nextView, anchor) => {
     setView(nextView);
     setMobileNav(false);
@@ -157,7 +210,7 @@ export default function App() {
           <div><strong>Edge AI active</strong><span>Local inference · secured</span></div>
           <i />
         </div>
-        <div className="sidebar-foot"><span>SM-KRNR-2026</span><strong>v1.1.0</strong></div>
+        <div className="sidebar-foot"><span>SM-KRNR-2026</span><strong>v1.2.0</strong></div>
       </aside>
 
       <main>
@@ -167,6 +220,8 @@ export default function App() {
           <button className="header-search" onClick={openCopilot}><Search size={16} /><span>Search via Sentinel Copilot</span><kbd>Ctrl K</kbd></button>
           <div className="header-actions">
             <div className="time-block"><strong>{clock.toLocaleTimeString("en-IN", { hour12: false })}</strong><small>IST · {clock.toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}</small></div>
+            <button className="topbar-action" onClick={() => setWatchlistOpen(true)} title="Manage vehicle and person watchlists"><ListPlus size={16} /> <span>Watchlist</span></button>
+            <button className={`topbar-action ${alertSoundsEnabled ? "enabled" : ""}`} onClick={enableOperatorAlerts} title={notificationPermission === "denied" ? "Sound enabled; browser notifications are blocked" : "Enable alert sound and request desktop notifications"}><Volume2 size={16} /> <span>{alertSoundsEnabled ? "Alerts on" : "Enable alerts"}</span></button>
             <button className={`connection ${connected ? "online" : "offline"}`}><i /> {connected ? "Mesh online" : "Disconnected"}</button>
             <button className="refresh-button" onClick={() => loadData()} title="Refresh"><RefreshCw size={17} className={loading ? "spinning" : ""} /></button>
           </div>
@@ -212,7 +267,7 @@ export default function App() {
           </section>
 
           <section className="lower-grid">
-            <AlertFeed alerts={alerts} onUpdated={updateAlert} onLocate={locateCamera} />
+            <AlertFeed alerts={alerts} status={alertStatus} unreadCount={intelligence.metrics?.unacknowledged || 0} onStatusChange={setAlertStatus} onUpdated={updateAlert} onLocate={locateCamera} />
             <AICopilot />
           </section>
 
@@ -229,6 +284,7 @@ export default function App() {
       </main>
       {mobileNav && <button className="nav-backdrop" onClick={() => setMobileNav(false)} aria-label="Close menu" />}
       <LiveViewModal camera={liveCamera} onClose={() => setLiveCamera(null)} />
+      <WatchlistModal open={watchlistOpen} onClose={() => setWatchlistOpen(false)} onChanged={() => loadData(true)} />
       <div className="ownership-watermark" aria-hidden="true">SM · KRNR · 2026</div>
     </div>
   );
