@@ -1,6 +1,12 @@
 # Sentinel Mesh
 ### An edge-correlated CCTV intelligence platform — Gujarat CCTV Hackathon 2026
 
+## Documentation
+
+- [AI, LLM, image, and runtime setup](docs/LLM_AND_RUNTIME_SETUP.md)
+- [Feature-by-feature operator guide](docs/FEATURE_USER_GUIDE.md)
+- [Architecture and scaling rationale](ARCHITECTURE.md)
+
 Sentinel Mesh is a working prototype of a **hybrid architecture** combining:
 
 - **Model 1 (mandatory)** — centralised CCTV registry + GIS mapping
